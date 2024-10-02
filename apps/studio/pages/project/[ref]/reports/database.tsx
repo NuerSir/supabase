@@ -1,8 +1,9 @@
 import dayjs from 'dayjs'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { AlertDescription_Shadcn_, Alert_Shadcn_, Button, IconExternalLink } from 'ui'
+import { toast } from 'sonner'
+import { AlertDescription_Shadcn_, Alert_Shadcn_, Button } from 'ui'
 
 import { PermissionAction } from '@supabase/shared-types/out/constants'
 import { useParams } from 'common'
@@ -23,9 +24,11 @@ import { useDatabaseReport } from 'data/reports/database-report-query'
 import { useCheckPermissions } from 'hooks/misc/useCheckPermissions'
 import { TIME_PERIODS_INFRA } from 'lib/constants/metrics'
 import { formatBytes } from 'lib/helpers'
-import toast from 'react-hot-toast'
 import { useDatabaseSelectorStateSnapshot } from 'state/database-selector'
 import type { NextPageWithLayout } from 'types'
+import { useOrgSubscriptionQuery } from 'data/subscriptions/org-subscription-query'
+import { useSelectedOrganization } from 'hooks/misc/useSelectedOrganization'
+import { useFlag } from 'hooks/ui/useFlag'
 
 const DatabaseReport: NextPageWithLayout = () => {
   return (
@@ -40,12 +43,21 @@ DatabaseReport.getLayout = (page) => <ReportsLayout title="Database">{page}</Rep
 export default DatabaseReport
 
 const DatabaseUsage = () => {
-  const { db, chart } = useParams()
+  const { db, chart, ref } = useParams()
   const { project } = useProjectContext()
-  const [dateRange, setDateRange] = useState<any>(undefined)
+  const diskManagementV2 = useFlag('diskManagementV2')
+
+  const org = useSelectedOrganization()
   const state = useDatabaseSelectorStateSnapshot()
+  const [dateRange, setDateRange] = useState<any>(undefined)
 
   const isReplicaSelected = state.selectedDatabaseId !== project?.ref
+
+  const { data: subscription } = useOrgSubscriptionQuery({ orgSlug: org?.slug })
+  const showNewDiskManagementUI =
+    subscription?.usage_based_billing_project_addons &&
+    diskManagementV2 &&
+    project?.cloud_provider === 'AWS'
 
   const report = useDatabaseReport()
   const { data } = useDatabaseSizeQuery({
@@ -202,7 +214,10 @@ const DatabaseUsage = () => {
           renderer={(props) => {
             return (
               <div>
-                <div className="col-span-4 inline-grid grid-cols-12 gap-12 w-full">
+                <p className="text-sm -mt-4 text-foreground-lighter">
+                  The data refreshes every 24 hours.
+                </p>
+                <div className="col-span-4 inline-grid grid-cols-12 gap-12 w-full mt-5">
                   <div className="grid gap-2 col-span-2">
                     <h5 className="text-sm">Space used</h5>
                     <span className="text-lg">{formatBytes(databaseSizeBytes, 2, 'GB')}</span>
@@ -213,21 +228,29 @@ const DatabaseUsage = () => {
                   </div>
 
                   <div className="col-span-8 text-right">
-                    <ButtonTooltip
-                      type="default"
-                      disabled={!canUpdateDiskSizeConfig}
-                      onClick={() => setshowIncreaseDiskSizeModal(true)}
-                      tooltip={{
-                        content: {
-                          side: 'bottom',
-                          text: !canUpdateDiskSizeConfig
-                            ? 'You need additional permissions to increase the disk size'
-                            : undefined,
-                        },
-                      }}
-                    >
-                      Increase disk size
-                    </ButtonTooltip>
+                    {showNewDiskManagementUI ? (
+                      <Button asChild type="default">
+                        <Link href={`/project/${ref}/settings/database#disk-management`}>
+                          Increase disk size
+                        </Link>
+                      </Button>
+                    ) : (
+                      <ButtonTooltip
+                        type="default"
+                        disabled={!canUpdateDiskSizeConfig}
+                        onClick={() => setshowIncreaseDiskSizeModal(true)}
+                        tooltip={{
+                          content: {
+                            side: 'bottom',
+                            text: !canUpdateDiskSizeConfig
+                              ? 'You need additional permissions to increase the disk size'
+                              : undefined,
+                          },
+                        }}
+                      >
+                        Increase disk size
+                      </ButtonTooltip>
+                    )}
                   </div>
                 </div>
 
@@ -278,7 +301,7 @@ const DatabaseUsage = () => {
                       inactive.
                     </p>
 
-                    <Button asChild type="default" icon={<IconExternalLink />}>
+                    <Button asChild type="default" icon={<ExternalLink />}>
                       <Link
                         href="https://supabase.com/docs/guides/platform/database-size#database-space-management"
                         target="_blank"
